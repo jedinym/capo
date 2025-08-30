@@ -110,6 +110,9 @@ func (r *Resolver) classifyCopy(copy UnprocessedCopy, layer *storage.Layer) (Cop
 	if err != nil {
 		return "", err
 	}
+
+	// TODO: the copying is REALLY inefficient, rethink this approach!
+	// might have to untar both diffs to compare
 	bDiff, err := copyStream(aa)
 	if err != nil {
 		aa.Close()
@@ -179,8 +182,6 @@ func (r *Resolver) getDiff(layer *storage.Layer) (io.ReadCloser, error) {
 }
 
 // copyStream consumes the entire stream and returns a new ReadCloser with the same contents
-// TODO: this is REALLY inefficient, rethink this approach
-// will probably have to untar both diffs to compare
 func copyStream(src io.ReadCloser) (io.ReadCloser, error) {
 	var buf bytes.Buffer
 	_, err := io.Copy(&buf, src)
@@ -196,7 +197,7 @@ func matchDiffs(bDiff io.ReadCloser, lDiff io.ReadCloser, source string) (bool, 
 	lHeader, err := lReader.Next()
 	if err == io.EOF {
 		// TODO: return error probably
-		return false, fmt.Errorf("")
+		return false, fmt.Errorf("Found no changes in layer diff!")
 	}
 	if err != nil {
 		return false, err
