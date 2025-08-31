@@ -11,6 +11,8 @@ const (
 	UnprocessedTypeExternal = "external"
 )
 
+// FIXME: a COPY can have multiple sources
+// TODO: do we need to support --link?
 type UnprocessedCopy struct {
 	from  string
 	spath string

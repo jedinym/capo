@@ -193,10 +193,10 @@ func copyStream(src io.ReadCloser) (io.ReadCloser, error) {
 }
 
 func matchDiffs(bDiff io.ReadCloser, lDiff io.ReadCloser, source string) (bool, error) {
+	// FIXME: a COPY can have multiple source paths
 	lReader := tar.NewReader(lDiff)
 	lHeader, err := lReader.Next()
 	if err == io.EOF {
-		// TODO: return error probably
 		return false, fmt.Errorf("Found no changes in layer diff!")
 	}
 	if err != nil {
