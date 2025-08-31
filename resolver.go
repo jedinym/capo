@@ -59,13 +59,19 @@ func NewResolver(pullspec string, builders []string) (Resolver, error) {
 }
 
 func (r *Resolver) Resolve(copy UnprocessedCopy) (Copy, error) {
-
 	layer, err := r.findMatchingLayer(copy)
 	if err != nil {
 		return Copy{}, err
 	}
 
-	cType, err := r.classifyCopy(copy, layer)
+	if copy.ctype == UnprocessedTypeExternal {
+		return Copy{
+			Type: CopyTypeExternal,
+			Diff: "",
+		}, nil
+	}
+
+	cType, err := r.classifyBuilderCopy(copy, layer)
 	if err != nil {
 		return Copy{}, err
 	}
@@ -100,7 +106,7 @@ func initBuilderLayers(images []storage.Image, store storage.Store, builders []s
 	return m, nil
 }
 
-func (r *Resolver) classifyCopy(copy UnprocessedCopy, layer *storage.Layer) (CopyType, error) {
+func (r *Resolver) classifyBuilderCopy(copy UnprocessedCopy, layer *storage.Layer) (CopyType, error) {
 	bLayer, ok := r.builderLayers[copy.from]
 	if !ok {
 		return "", fmt.Errorf("Could not find builder layer for %s", copy.from)
@@ -252,8 +258,9 @@ func matchDiff(diff io.ReadCloser, path string) (bool, error) {
 			return false, err
 		}
 
+		noPrefixPath, _ := strings.CutPrefix(path, "/")
 		// TODO: this might not be enough to match, explore more options
-		if header.Name == path {
+		if header.Name == noPrefixPath {
 			return true, nil
 		}
 	}

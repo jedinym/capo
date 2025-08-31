@@ -44,6 +44,12 @@ func main() {
 			dpath: "content",
 			ctype: UnprocessedTypeBuilder,
 		},
+		UnprocessedCopy{
+			from:  "quay.io/konflux-ci/oras:3d83c68",
+			spath: "/usr/bin/oras",
+			dpath: "/usr/bin/oras",
+			ctype: UnprocessedTypeExternal,
+		},
 	}
 
 	for _, cmd := range cmds {
