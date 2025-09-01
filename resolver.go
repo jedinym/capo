@@ -19,6 +19,7 @@ type Resolver struct {
 	layers        []storage.Layer
 	builderLayers map[string]*storage.Layer
 	component     storage.Image
+	matcher       LayerMatcher
 }
 
 func NewResolver(pullspec string, builders []string) (Resolver, error) {
@@ -47,6 +48,11 @@ func NewResolver(pullspec string, builders []string) (Resolver, error) {
 		return Resolver{}, err
 	}
 
+	matcher, err := NewLayerMatcher(store, component)
+	if err != nil {
+		return Resolver{}, err
+	}
+
 	bLayers, err := initBuilderLayers(images, store, builders)
 
 	return Resolver{
@@ -55,11 +61,12 @@ func NewResolver(pullspec string, builders []string) (Resolver, error) {
 		layers:        layers,
 		component:     component,
 		builderLayers: bLayers,
+		matcher:       matcher,
 	}, nil
 }
 
 func (r *Resolver) Resolve(copy UnprocessedCopy) (Copy, error) {
-	layer, err := r.findMatchingLayer(copy)
+	layer, err := r.matcher.MatchLayer(r.store, copy)
 	if err != nil {
 		return Copy{}, err
 	}
@@ -112,7 +119,7 @@ func (r *Resolver) classifyBuilderCopy(copy UnprocessedCopy, layer *storage.Laye
 		return "", fmt.Errorf("Could not find builder layer for %s", copy.from)
 	}
 
-	aa, err := r.getDiff(bLayer)
+	aa, err := GetDiff(r.store, bLayer)
 	if err != nil {
 		return "", err
 	}
@@ -126,13 +133,13 @@ func (r *Resolver) classifyBuilderCopy(copy UnprocessedCopy, layer *storage.Laye
 	}
 	aa.Close()
 
-	lDiff, err := r.getDiff(layer)
+	lDiff, err := GetDiff(r.store, layer)
 	if err != nil {
 		return "", err
 	}
 	defer lDiff.Close()
 
-	match, err := matchDiffs(bDiff, lDiff, copy.spath)
+	match, err := matchDiffs(bDiff, lDiff, copy.source)
 	if err != nil {
 		return "", err
 	}
@@ -144,6 +151,8 @@ func (r *Resolver) classifyBuilderCopy(copy UnprocessedCopy, layer *storage.Laye
 	return CopyTypeIntermediate, nil
 }
 
+// findMatchingLayer takes an UnprocessedCopy as argument and tries to find the layer
+// that implements the COPY command.
 func (r *Resolver) findMatchingLayer(copy UnprocessedCopy) (*storage.Layer, error) {
 	layerId := r.component.TopLayer
 	for {
@@ -156,12 +165,12 @@ func (r *Resolver) findMatchingLayer(copy UnprocessedCopy) (*storage.Layer, erro
 			return nil, err
 		}
 
-		diff, err := r.getDiff(layer)
+		diff, err := GetDiff(r.store, layer)
 		if err != nil {
 			return nil, err
 		}
 
-		matches, err := matchDiff(diff, copy.dpath)
+		matches, err := matchDiff(diff, copy.dest)
 		if err != nil {
 			diff.Close()
 			return nil, err
@@ -178,13 +187,13 @@ func (r *Resolver) findMatchingLayer(copy UnprocessedCopy) (*storage.Layer, erro
 	return nil, fmt.Errorf("Could not find matching layer for copy: %+v", copy)
 }
 
-func (r *Resolver) getDiff(layer *storage.Layer) (io.ReadCloser, error) {
+func GetDiff(store storage.Store, layer *storage.Layer) (io.ReadCloser, error) {
 	compression := archive.Uncompressed
 	opts := storage.DiffOptions{
 		Compression: &compression,
 	}
 
-	return r.store.Diff("", layer.ID, &opts)
+	return store.Diff("", layer.ID, &opts)
 }
 
 // copyStream consumes the entire stream and returns a new ReadCloser with the same contents
@@ -198,10 +207,14 @@ func copyStream(src io.ReadCloser) (io.ReadCloser, error) {
 	return io.NopCloser(bytes.NewReader(buf.Bytes())), nil
 }
 
+// FIXME: this implementation is probably the wrong approach,
+// untaring the diffs to temporary directories seems like a better way to compare
+// The primordial idea:
+// 1. Go through all the source paths and try to find them in the builder diff
+// 2. If they're there, declare victory and say that it's matched (think when and how this can go wrong)
 func matchDiffs(bDiff io.ReadCloser, lDiff io.ReadCloser, source string) (bool, error) {
-	// FIXME: a COPY can have multiple source paths
 	lReader := tar.NewReader(lDiff)
-	lHeader, err := lReader.Next()
+	_, err := lReader.Next()
 	if err == io.EOF {
 		return false, fmt.Errorf("Found no changes in layer diff!")
 	}
@@ -220,7 +233,7 @@ func matchDiffs(bDiff io.ReadCloser, lDiff io.ReadCloser, source string) (bool, 
 		}
 
 		raw, _ := strings.CutPrefix(source, "/")
-		if raw == bHeader.Name && matchHeaders(bHeader, lHeader) {
+		if raw == bHeader.Name {
 			return true, nil
 		}
 	}
@@ -244,29 +257,6 @@ func matchHeaders(bHeader *tar.Header, lHeader *tar.Header) bool {
 	// TODO: this requires more testing but worst-case we might have to calculate checksums
 
 	return true
-}
-
-func matchDiff(diff io.ReadCloser, path string) (bool, error) {
-	// TODO: this needs to be deduplicated with matchDiffs
-	// TODO: this also needs to support directories
-	reader := tar.NewReader(diff)
-	for {
-		header, err := reader.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return false, err
-		}
-
-		noPrefixPath, _ := strings.CutPrefix(path, "/")
-		// TODO: this might not be enough to match, explore more options
-		if header.Name == noPrefixPath {
-			return true, nil
-		}
-	}
-
-	return false, nil
 }
 
 func findImage(images []storage.Image, pullspec string) (storage.Image, error) {

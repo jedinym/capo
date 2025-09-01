@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"slices"
 )
 
 type UnprocessedCopyType string
@@ -11,13 +12,12 @@ const (
 	UnprocessedTypeExternal = "external"
 )
 
-// FIXME: a COPY can have multiple sources
 // TODO: do we need to support --link?
 type UnprocessedCopy struct {
-	from  string
-	spath string
-	dpath string
-	ctype UnprocessedCopyType
+	from   string
+	source string
+	dest   string
+	ctype  UnprocessedCopyType
 }
 
 func main() {
@@ -33,24 +33,23 @@ func main() {
 
 	cmds := []UnprocessedCopy{
 		{
-			from:  "registry.access.redhat.com/ubi9/python-312@sha256:83b01cf47b22e6ce98a0a4802772fb3d4b7e32280e3a1b7ffcd785e01956e1cb",
-			spath: "/usr/bin/ab",
-			dpath: "ab",
-			ctype: UnprocessedTypeBuilder,
+			from:   "registry.access.redhat.com/ubi9/python-312@sha256:83b01cf47b22e6ce98a0a4802772fb3d4b7e32280e3a1b7ffcd785e01956e1cb",
+			source: "/app/content",
+			dest:   "/app/content",
+			ctype:  UnprocessedTypeBuilder,
 		},
 		{
-			from:  "registry.access.redhat.com/ubi9/python-312@sha256:83b01cf47b22e6ce98a0a4802772fb3d4b7e32280e3a1b7ffcd785e01956e1cb",
-			spath: "/app/content",
-			dpath: "content",
-			ctype: UnprocessedTypeBuilder,
-		},
-		{
-			from:  "quay.io/konflux-ci/oras:3d83c68",
-			spath: "/usr/bin/oras",
-			dpath: "/usr/bin/oras",
-			ctype: UnprocessedTypeExternal,
+			from:   "registry.access.redhat.com/ubi9/python-312@sha256:83b01cf47b22e6ce98a0a4802772fb3d4b7e32280e3a1b7ffcd785e01956e1cb",
+			source: "/usr/bin/ab",
+			dest:   "/app/content",
+			ctype:  UnprocessedTypeBuilder,
 		},
 	}
+
+	// reverse the copy commands, so that they are in the same order as layers
+	// (top layer first)
+	// this is necessary to properly match COPY-ies to layers
+	slices.Reverse(cmds)
 
 	for _, cmd := range cmds {
 		copy, err := resolver.Resolve(cmd)
