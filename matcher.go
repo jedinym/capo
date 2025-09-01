@@ -40,7 +40,7 @@ func (lm *LayerMatcher) MatchLayer(store storage.Store, copy UnprocessedCopy) (*
 			return nil, err
 		}
 
-		matches, err := matchDiff(diff, copy.dest)
+		matches, err := matchDiff(diff, copy)
 		if err != nil {
 			diff.Close()
 			return nil, err
@@ -76,7 +76,7 @@ func initComponentLayers(store storage.Store, component storage.Image) ([]*stora
 	return cLayers, nil
 }
 
-func matchDiff(diff io.ReadCloser, path string) (bool, error) {
+func matchDiff(diff io.ReadCloser, copy UnprocessedCopy) (bool, error) {
 	// TODO: this needs to be deduplicated with matchDiffs
 	// TODO: this also needs to support directories
 	reader := tar.NewReader(diff)
@@ -89,9 +89,12 @@ func matchDiff(diff io.ReadCloser, path string) (bool, error) {
 			return false, err
 		}
 
-		noPrefixPath, _ := strings.CutPrefix(path, "/")
+		// remove '/' prefix - the layer is never in the root
+		noPrefixPath, _ := strings.CutPrefix(copy.dest, "/")
+
+		noSuffixHeaderName, _ := strings.CutSuffix(header.Name, "/")
 		// TODO: this might not be enough to match, explore more options
-		if header.Name == noPrefixPath {
+		if noSuffixHeaderName == noPrefixPath {
 			return true, nil
 		}
 	}
