@@ -247,6 +247,7 @@ func matchHeaders(bHeader *tar.Header, lHeader *tar.Header) bool {
 }
 
 func matchDiff(diff io.ReadCloser, path string) (bool, error) {
+	// TODO: this needs to be deduplicated with matchDiffs
 	// TODO: this also needs to support directories
 	reader := tar.NewReader(diff)
 	for {
