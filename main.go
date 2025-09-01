@@ -32,19 +32,19 @@ func main() {
 	defer resolver.Free()
 
 	cmds := []UnprocessedCopy{
-		UnprocessedCopy{
+		{
 			from:  "registry.access.redhat.com/ubi9/python-312@sha256:83b01cf47b22e6ce98a0a4802772fb3d4b7e32280e3a1b7ffcd785e01956e1cb",
 			spath: "/usr/bin/ab",
 			dpath: "ab",
 			ctype: UnprocessedTypeBuilder,
 		},
-		UnprocessedCopy{
+		{
 			from:  "registry.access.redhat.com/ubi9/python-312@sha256:83b01cf47b22e6ce98a0a4802772fb3d4b7e32280e3a1b7ffcd785e01956e1cb",
 			spath: "/app/content",
 			dpath: "content",
 			ctype: UnprocessedTypeBuilder,
 		},
-		UnprocessedCopy{
+		{
 			from:  "quay.io/konflux-ci/oras:3d83c68",
 			spath: "/usr/bin/oras",
 			dpath: "/usr/bin/oras",
