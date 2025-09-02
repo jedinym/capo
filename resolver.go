@@ -212,7 +212,7 @@ func matchBuilder(bDiff io.ReadCloser, lDiff io.ReadCloser, source []string) (bo
 
 		for _, s := range source {
 			raw, _ := strings.CutPrefix(s, "/")
-			if raw == bHeader.Name && lHeader.ChangeTime.Equal(bHeader.ChangeTime) {
+			if raw == bHeader.Name && lHeader.ModTime.Equal(bHeader.ModTime) {
 				sourceMap[s] = true
 			}
 		}
