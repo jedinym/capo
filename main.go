@@ -20,6 +20,19 @@ type UnprocessedCopy struct {
 	ctype  UnprocessedCopyType
 }
 
+func (c UnprocessedCopy) DestIsDir() bool {
+	if len(c.source) != 0 {
+		return true
+	}
+
+	lastChar := c.dest[len(c.dest)-1:]
+	if lastChar == "/" {
+		return true
+	}
+
+	return false
+}
+
 func main() {
 	builders := []string{
 		"registry.access.redhat.com/ubi9/python-312@sha256:83b01cf47b22e6ce98a0a4802772fb3d4b7e32280e3a1b7ffcd785e01956e1cb",
@@ -34,8 +47,8 @@ func main() {
 	cmds := []UnprocessedCopy{
 		{
 			from:   "registry.access.redhat.com/ubi9/python-312@sha256:83b01cf47b22e6ce98a0a4802772fb3d4b7e32280e3a1b7ffcd785e01956e1cb",
-			source: []string{"/usr/bin/ab"},
-			dest:   "/usr/bin/ab",
+			source: []string{"/opt/app-root/bin/"},
+			dest:   "/app",
 			ctype:  UnprocessedTypeBuilder,
 		},
 	}

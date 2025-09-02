@@ -92,15 +92,6 @@ func (r *Resolver) Free() {
 	r.store.Free()
 }
 
-// TODO: probably want to store the tar archive here, to avoid reading diffs many times
-// but can't really do that, as there's no way to reset the reader.
-// Also can't store the diff in memory, as that could be very large.
-// options:
-//   - untar the diff into a tempdir
-//      - this will be pretty slow when matching layers because of IO
-//   - create own datastructure to hold the relevant data
-//      - this is extra complexity
-//      - cannot verify checksums this way
 func initBuilderLayers(images []storage.Image, store storage.Store, builders []string) (map[string]*storage.Layer, error) {
 	m := make(map[string]*storage.Layer)
 
@@ -129,19 +120,18 @@ func (r *Resolver) classifyBuilderCopy(copy UnprocessedCopy, layer *storage.Laye
 
 	// FIXME: We should not be getting the diff more than once for the builder layers
 	// There can be many calls of this
-	aa, err := GetDiff(r.store, bLayer)
+	origBDiff, err := GetDiff(r.store, bLayer)
 	if err != nil {
 		return "", err
 	}
 
 	// TODO: the copying is REALLY inefficient, rethink this approach!
-	// might have to untar both diffs to compare
-	bDiff, err := copyStream(aa)
+	bDiff, err := copyStream(origBDiff)
 	if err != nil {
-		aa.Close()
+		origBDiff.Close()
 		return "", err
 	}
-	aa.Close()
+	origBDiff.Close()
 
 	lDiff, err := GetDiff(r.store, layer)
 	if err != nil {
@@ -181,16 +171,8 @@ func copyStream(src io.ReadCloser) (io.ReadCloser, error) {
 	return io.NopCloser(bytes.NewReader(buf.Bytes())), nil
 }
 
-// FIXME: this implementation is probably the wrong approach,
 func matchBuilder(bDiff io.ReadCloser, lDiff io.ReadCloser, source []string) (bool, error) {
-	// TODO: Here we're reading just one entry in the tar archive,
-	// this would break down if there were multiple changes in a single layer
-	// so it will probably break down when doing a copy with a wildcard
-	lReader := tar.NewReader(lDiff)
-	lHeader, err := lReader.Next()
-	if err == io.EOF {
-		return false, fmt.Errorf("Found no changes in layer diff!")
-	}
+	layerHeader, err := getLastHeader(lDiff)
 	if err != nil {
 		return false, err
 	}
@@ -200,9 +182,9 @@ func matchBuilder(bDiff io.ReadCloser, lDiff io.ReadCloser, source []string) (bo
 		sourceMap[s] = false
 	}
 
-	bReader := tar.NewReader(bDiff)
+	builderReader := tar.NewReader(bDiff)
 	for {
-		bHeader, err := bReader.Next()
+		builderHeader, err := builderReader.Next()
 		if err == io.EOF {
 			break
 		}
@@ -211,8 +193,10 @@ func matchBuilder(bDiff io.ReadCloser, lDiff io.ReadCloser, source []string) (bo
 		}
 
 		for _, s := range source {
-			raw, _ := strings.CutPrefix(s, "/")
-			if raw == bHeader.Name && lHeader.ModTime.Equal(bHeader.ModTime) {
+			noPrefix, _ := strings.CutPrefix(s, "/")
+			if noPrefix == builderHeader.Name &&
+				layerHeader.ModTime.Equal(builderHeader.ModTime) {
+
 				sourceMap[s] = true
 			}
 		}
@@ -225,6 +209,26 @@ func matchBuilder(bDiff io.ReadCloser, lDiff io.ReadCloser, source []string) (bo
 	}
 
 	return true, nil
+}
+
+func getLastHeader(diff io.ReadCloser) (*tar.Header, error) {
+	var lastHeader *tar.Header = nil
+	lReader := tar.NewReader(diff)
+	for {
+		h, err := lReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		lastHeader = h
+	}
+	if lastHeader == nil {
+		return nil, fmt.Errorf("Found no changes in layer diff!")
+	}
+
+	return lastHeader, nil
 }
 
 func findImage(images []storage.Image, pullspec string) (storage.Image, error) {
