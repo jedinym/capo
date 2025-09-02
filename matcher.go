@@ -77,6 +77,7 @@ func initComponentLayers(store storage.Store, component storage.Image) ([]*stora
 }
 
 func matchDiff(diff io.ReadCloser, copy UnprocessedCopy) (bool, error) {
+	// TODO: can this deal with multiple layers that touch the same file as the copy?
 	// TODO: this needs to be deduplicated with matchDiffs
 	// TODO: this also needs to support directories
 	reader := tar.NewReader(diff)

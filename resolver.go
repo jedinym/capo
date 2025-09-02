@@ -100,6 +100,7 @@ func (r *Resolver) Free() {
 //      - this will be pretty slow when matching layers because of IO
 //   - create own datastructure to hold the relevant data
 //      - this is extra complexity
+//      - cannot verify checksums this way
 func initBuilderLayers(images []storage.Image, store storage.Store, builders []string) (map[string]*storage.Layer, error) {
 	m := make(map[string]*storage.Layer)
 
