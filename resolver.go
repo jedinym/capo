@@ -92,6 +92,14 @@ func (r *Resolver) Free() {
 	r.store.Free()
 }
 
+// TODO: probably want to store the tar archive here, to avoid reading diffs many times
+// but can't really do that, as there's no way to reset the reader.
+// Also can't store the diff in memory, as that could be very large.
+// options:
+//   - untar the diff into a tempdir
+//      - this will be pretty slow when matching layers because of IO
+//   - create own datastructure to hold the relevant data
+//      - this is extra complexity
 func initBuilderLayers(images []storage.Image, store storage.Store, builders []string) (map[string]*storage.Layer, error) {
 	m := make(map[string]*storage.Layer)
 
@@ -140,7 +148,7 @@ func (r *Resolver) classifyBuilderCopy(copy UnprocessedCopy, layer *storage.Laye
 	}
 	defer lDiff.Close()
 
-	match, err := matchDiffs(bDiff, lDiff, copy.source)
+	match, err := matchBuilder(bDiff, lDiff, copy.source)
 	if err != nil {
 		return "", err
 	}
@@ -173,11 +181,12 @@ func copyStream(src io.ReadCloser) (io.ReadCloser, error) {
 }
 
 // FIXME: this implementation is probably the wrong approach,
-// untaring the diffs to temporary directories seems like a better way to compare
-// Also need to take into account the actual layer
-func matchDiffs(bDiff io.ReadCloser, lDiff io.ReadCloser, source []string) (bool, error) {
+func matchBuilder(bDiff io.ReadCloser, lDiff io.ReadCloser, source []string) (bool, error) {
+	// TODO: Here we're reading just one entry in the tar archive,
+	// this would break down if there were multiple changes in a single layer
+	// so it will probably break down when doing a copy with a wildcard
 	lReader := tar.NewReader(lDiff)
-	_, err := lReader.Next()
+	lHeader, err := lReader.Next()
 	if err == io.EOF {
 		return false, fmt.Errorf("Found no changes in layer diff!")
 	}
@@ -202,7 +211,7 @@ func matchDiffs(bDiff io.ReadCloser, lDiff io.ReadCloser, source []string) (bool
 
 		for _, s := range source {
 			raw, _ := strings.CutPrefix(s, "/")
-			if raw == bHeader.Name {
+			if raw == bHeader.Name && lHeader.ChangeTime.Equal(bHeader.ChangeTime) {
 				sourceMap[s] = true
 			}
 		}
