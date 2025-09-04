@@ -1,7 +1,11 @@
 .PHONY:
-run: main.go
+run:
 	buildah unshare go run .
 
 .PHONY:
-debug: main.go
+debug:
 	buildah unshare dlv debug
+
+.PHONY:
+test:
+	go test .

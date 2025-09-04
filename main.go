@@ -1,69 +1,64 @@
 package main
 
 import (
+	"fmt"
 	"log"
-	"slices"
+
+	"go.podman.io/storage"
 )
-
-type UnprocessedCopyType string
-
-const (
-	UnprocessedTypeBuilder  = "builder"
-	UnprocessedTypeExternal = "external"
-)
-
-// TODO: do we need to support --link?
-type UnprocessedCopy struct {
-	from   string
-	source []string
-	dest   string
-	ctype  UnprocessedCopyType
-}
-
-func (c UnprocessedCopy) DestIsDir() bool {
-	if len(c.source) != 0 {
-		return true
-	}
-
-	lastChar := c.dest[len(c.dest)-1:]
-	if lastChar == "/" {
-		return true
-	}
-
-	return false
-}
 
 func main() {
-	builders := []string{
-		"registry.access.redhat.com/ubi9/python-312@sha256:83b01cf47b22e6ce98a0a4802772fb3d4b7e32280e3a1b7ffcd785e01956e1cb",
-	}
-	componentTag := "localhost/test:latest"
-	resolver, err := NewResolver(componentTag, builders)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	defer resolver.Free()
-
-	cmds := []UnprocessedCopy{
-		{
-			from:   "registry.access.redhat.com/ubi9/python-312@sha256:83b01cf47b22e6ce98a0a4802772fb3d4b7e32280e3a1b7ffcd785e01956e1cb",
-			source: []string{"/opt/app-root/bin/"},
-			dest:   "/app",
-			ctype:  UnprocessedTypeBuilder,
+	// TODO: add external image processing
+	input := Input{
+		builders: []Builder{
+			{
+				pullspec: "registry.access.redhat.com/ubi9/python-312@sha256:83b01cf47b22e6ce98a0a4802772fb3d4b7e32280e3a1b7ffcd785e01956e1cb",
+				alias:    "first",
+				copies: []Copy{
+					{
+						source: []string{"/dir", "/dir2"},
+						dest:   "/dest/",
+					},
+				},
+			},
+			{
+				pullspec: "registry.access.redhat.com/ubi9/python-312@sha256:83b01cf47b22e6ce98a0a4802772fb3d4b7e32280e3a1b7ffcd785e01956e1cb",
+				alias:    "last",
+				copies: []Copy{
+					{
+						source: []string{"/dest/"},
+						dest:   "/app",
+					},
+				},
+			},
 		},
 	}
 
-	// reverse the copy commands, so that they are in the same order as layers
-	// (top layer first)
-	// this is necessary to properly match COPY-ies to layers
-	slices.Reverse(cmds)
+	mask := NewCopyMask(input.builders)
 
-	for _, cmd := range cmds {
-		copy, err := resolver.Resolve(cmd)
-		if err != nil {
-			log.Fatalln(err)
-		}
-
-		log.Printf("original: %+v\t resolved: %+v\n", cmd, copy)
+	opts, err := storage.DefaultStoreOptions()
+	if err != nil {
+		log.Fatalln("Failed to create default container storage options")
 	}
+
+	store, err := storage.GetStore(opts)
+	if err != nil {
+		log.Fatalln("Failed to create container storage")
+	}
+
+	builderData := make([]BuilderImage, 0)
+
+	for _, builder := range input.builders {
+		data, err := ProcessBuilder(store, "./output", builder, mask)
+		if err != nil {
+			log.Fatalf("Failed to process builder %+v with error: %v\n", builder, err)
+		}
+		builderData = append(builderData, data)
+	}
+
+	index := Index{
+		Builder: builderData,
+	}
+
+	fmt.Printf("%+v\n", index)
 }
