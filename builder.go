@@ -8,7 +8,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strings"
 
 	"go.podman.io/storage"
 	"go.podman.io/storage/pkg/archive"
@@ -192,54 +191,51 @@ func getIntermediateDiffPath(store storage.Store, builderImage *storage.Image, b
 	return interPath, nil
 }
 
-func getExcludedPaths(root string, mask CopyMask, alias string) ([]string, error) {
-	excluded := make([]string, 0)
+// It is the caller's responsibility to clean up the returned path.
+func getBuilderContent(store storage.Store, builderImage *storage.Image, builder Builder, mask CopyMask) (string, error) {
+	mountPath, err := store.MountImage(builderImage.ID, []string{}, "")
+	if err != nil {
+		return "", err
+	}
+	defer store.UnmountImage(builderImage.ID, false)
 
-	// Use a queue for breadth-first traversal
-	queue := []string{root}
+	contentPath, err := os.MkdirTemp("", "")
+	if err != nil {
+		return "", err
+	}
 
-	for len(queue) > 0 {
-		currentPath := queue[0]
-		queue = queue[1:]
-
-		entries, err := os.ReadDir(currentPath)
+	for _, src := range mask.GetSources(builder.alias) {
+		full := path.Join(mountPath, src)
+		fInfo, err := os.Stat(full)
 		if err != nil {
-			return []string{}, err
+			return "", err
 		}
 
-		for _, entry := range entries {
-			fullPath := filepath.Join(currentPath, entry.Name())
-			noRoot, _ := strings.CutPrefix(fullPath, root+"/")
+		if fInfo.IsDir() {
+			// FIXME: implement magic (later)
+		} else if fInfo.Mode().IsRegular() {
+			reader, err := os.Open(full)
 
-			// skip if parent is already excluded
-			parentExcluded := false
-			for _, exc := range excluded {
-				if strings.HasPrefix(fullPath, filepath.Join(root, exc)) {
-					parentExcluded = true
-					break
-				}
+			dest := path.Join(contentPath, src)
+			os.MkdirAll(filepath.Dir(dest), 0755)
+
+			writer, err := os.Create(dest)
+
+			_, err = io.Copy(writer, reader)
+			if err != nil {
+				reader.Close()
+				writer.Close()
+				return "", err
 			}
 
-			if parentExcluded {
-				continue
-			}
-
-			if !mask.Supersets(alias, noRoot) {
-				// syft excludes must begin with "./"
-				toExclude := "./" + noRoot
-				if entry.IsDir() {
-					toExclude = toExclude + "/**"
-				}
-				excluded = append(excluded, toExclude)
-			} else if entry.IsDir() {
-				// Only add directories to queue if they're not excluded
-				queue = append(queue, fullPath)
-			}
+			reader.Close()
+			writer.Close()
 		}
 	}
 
-	return excluded, nil
+	return contentPath, nil
 }
+
 
 // TODO: break up into more functions
 // TODO: create a struct with often used args
@@ -262,27 +258,21 @@ func ProcessBuilder(store storage.Store, output string, builder Builder, mask Co
 	//defer os.RemoveAll(iDiffPath)
 
 	iSbomPath := path.Join(dest, "intermediate.json")
-	if err := SyftScan(iDiffPath, iSbomPath, []string{}); err != nil {
+	if err := SyftScan(iDiffPath, iSbomPath); err != nil {
 		return BuilderImage{}, err
 	}
 
-	mountPath, err := store.MountImage(builderImage.ID, []string{}, "")
+	bContentPath, err := getBuilderContent(store, builderImage, builder, mask)
 	if err != nil {
-		return BuilderImage{}, err
-	}
-	defer store.UnmountImage(builderImage.ID, false)
-
-	excluded, err := getExcludedPaths(mountPath, mask, builder.alias)
-	if err != nil {
-		return BuilderImage{}, err
-	}
-
-	bSbomPath := path.Join(dest, "builder.json")
-	log.Printf("Builder %s content path: %s", builder.alias, mountPath + "/usr/bin")
-	if err := SyftScan(mountPath, bSbomPath, excluded); err != nil {
 		return BuilderImage{}, err
 	}
 	//defer os.RemoveAll(bContentPath)
+
+	bSbomPath := path.Join(dest, "builder.json")
+	log.Printf("Builder %s content path: %s", builder.alias, bContentPath)
+	if err := SyftScan(bContentPath, bSbomPath); err != nil {
+		return BuilderImage{}, err
+	}
 
 	return BuilderImage{
 		Pullspec:         builder.pullspec,

@@ -49,17 +49,8 @@ func (mask CopyMask) Includes(alias string, path string) bool {
 	return false
 }
 
-func (mask CopyMask) Supersets(alias string, path string) bool {
-	sources := mask.mask[alias]
-	for _, src := range sources {
-		// TODO: the log statements should be moved to the callers for more context?
-		if strings.HasPrefix(src, "/" + path) {
-			log.Printf("Including %s\n", path)
-			return true
-		}
-	}
-
-	return false
+func (mask CopyMask) GetSources(alias string) []string {
+	return mask.mask[alias]
 }
 
 type copyNode struct {

@@ -2,32 +2,25 @@ package main
 
 import (
 	"context"
-	"log"
 	"os"
 
 	"github.com/anchore/syft/syft"
 	"github.com/anchore/syft/syft/format/spdxjson"
-	"github.com/anchore/syft/syft/source"
 	"github.com/anchore/syft/syft/source/sourceproviders"
 	_ "modernc.org/sqlite" // required for Syft's RPM cataloguer
 )
 
 // TODO: create a wrapper struct that sets up the common configs
-func SyftScan(root string, dest string, excludePaths []string) error {
+func SyftScan(root string, dest string) error {
 	ctx := context.Background()
 
-	excludeCfg := source.ExcludeConfig{
-		Paths: excludePaths,
-	}
-
-	srcConfig := syft.DefaultGetSourceConfig().WithSources(sourceproviders.DirTag).WithExcludeConfig(excludeCfg)
+	srcConfig := syft.DefaultGetSourceConfig().WithSources(sourceproviders.DirTag)
 
 	src, err := syft.GetSource(ctx, root, srcConfig)
 	if err != nil {
 		return err
 	}
 
-	log.Printf("Generating SBOM from %s with exclude: %+v\n", root, excludeCfg)
 	sbom, err := syft.CreateSBOM(ctx, src, syft.DefaultCreateSBOMConfig())
 	if err != nil {
 		return err
