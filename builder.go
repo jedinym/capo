@@ -13,7 +13,6 @@ import (
 	"go.podman.io/storage/pkg/archive"
 )
 
-
 func getBuilderImage(store storage.Store, pullspec string) (*storage.Image, error) {
 	imgId, err := store.Lookup(pullspec)
 	if err != nil {
@@ -235,7 +234,6 @@ func getBuilderContent(store storage.Store, builderImage *storage.Image, builder
 
 	return contentPath, nil
 }
-
 
 // TODO: break up into more functions
 // TODO: create a struct with often used args

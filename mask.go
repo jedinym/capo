@@ -51,7 +51,7 @@ func NewCopyMasks(builders []Builder) map[string]CopyMask {
 func (mask CopyMask) Includes(path string) bool {
 	for _, src := range mask.sources {
 		// TODO: the log statements should be moved to the callers for more context?
-		if strings.HasPrefix("/" + path, src) {
+		if strings.HasPrefix("/"+path, src) {
 			log.Printf("Including %s\n", path)
 			return true
 		}
