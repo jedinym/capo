@@ -168,12 +168,17 @@ func TestCopyMaskFiltering(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mask := NewCopyMask(tt.builders)
+			masks := NewCopyMasks(tt.builders)
 
 			for _, tc := range tt.testCases {
-				result := mask.Includes(tc.alias, tc.path)
+				mask, exists := masks[tc.alias]
+				if !exists {
+					t.Errorf("No mask found for alias %q", tc.alias)
+					continue
+				}
+				result := mask.Includes(tc.path)
 				if result != tc.expected {
-					t.Errorf("Includes(%q, %q) = %v, want %v", tc.alias, tc.path, result, tc.expected)
+					t.Errorf("Includes(%q) for alias %q = %v, want %v", tc.path, tc.alias, result, tc.expected)
 				}
 			}
 		})
@@ -222,21 +227,23 @@ func TestCopyMaskWithEdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mask := NewCopyMask(tt.builders)
-			result := mask.Includes(tt.alias, tt.path)
+			masks := NewCopyMasks(tt.builders)
+			mask, exists := masks[tt.alias]
+			if !exists {
+				t.Errorf("No mask found for alias %q", tt.alias)
+				return
+			}
+			result := mask.Includes(tt.path)
 			if result != tt.expected {
-				t.Errorf("Includes(%q, %q) = %v, want %v", tt.alias, tt.path, result, tt.expected)
+				t.Errorf("Includes(%q) for alias %q = %v, want %v", tt.path, tt.alias, result, tt.expected)
 			}
 		})
 	}
 }
 
-func TestNewCopyMaskPanicsOnEmptyBuilders(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Errorf("NewCopyMask should panic when given empty builders slice")
-		}
-	}()
-
-	NewCopyMask([]Builder{})
+func TestNewCopyMasksReturnsEmptyOnEmptyBuilders(t *testing.T) {
+	result := NewCopyMasks([]Builder{})
+	if len(result) != 0 {
+		t.Errorf("NewCopyMasks should return empty map when given empty builders slice, got %v", result)
+	}
 }

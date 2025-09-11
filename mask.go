@@ -6,12 +6,12 @@ import (
 )
 
 type CopyMask struct {
-	mask map[string][]string
+	sources []string
 }
 
-func NewCopyMask(builders []Builder) CopyMask {
+func NewCopyMasks(builders []Builder) map[string]CopyMask {
 	if len(builders) == 0 {
-		log.Panicln("Cannot create CopyMask if no Builders provided!")
+		return make(map[string]CopyMask)
 	}
 	topBuilder := builders[len(builders)-1]
 
@@ -32,13 +32,24 @@ func NewCopyMask(builders []Builder) CopyMask {
 		collectCopiesInTree(tree, mask)
 	}
 
-	return CopyMask{mask: mask}
+	result := make(map[string]CopyMask)
+	for alias, sources := range mask {
+		result[alias] = CopyMask{sources: sources}
+	}
+
+	// ensure all builders have a mask, even if not in dependency tree
+	for _, builder := range builders {
+		if _, exists := result[builder.alias]; !exists {
+			result[builder.alias] = CopyMask{sources: []string{}}
+		}
+	}
+
+	return result
 }
 
 // path cannot be prefixed with '/', the root char is added when comparing to sources
-func (mask CopyMask) Includes(alias string, path string) bool {
-	sources := mask.mask[alias]
-	for _, src := range sources {
+func (mask CopyMask) Includes(path string) bool {
+	for _, src := range mask.sources {
 		// TODO: the log statements should be moved to the callers for more context?
 		if strings.HasPrefix("/" + path, src) {
 			log.Printf("Including %s\n", path)
@@ -49,8 +60,8 @@ func (mask CopyMask) Includes(alias string, path string) bool {
 	return false
 }
 
-func (mask CopyMask) GetSources(alias string) []string {
-	return mask.mask[alias]
+func (mask CopyMask) GetSources() []string {
+	return mask.sources
 }
 
 type copyNode struct {

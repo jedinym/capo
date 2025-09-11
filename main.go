@@ -28,8 +28,8 @@ func main() {
 		return
 	}
 
-	mask := NewCopyMask(input.builders)
-	log.Printf("Parsed copy mask: %+v\n", mask)
+	masks := NewCopyMasks(input.builders)
+	log.Printf("Parsed copy masks: %+v\n", masks)
 
 	opts, err := storage.DefaultStoreOptions()
 	if err != nil {
@@ -44,7 +44,7 @@ func main() {
 	builderData := make([]BuilderImage, 0)
 
 	for _, builder := range input.builders {
-		data, err := ProcessBuilder(store, "./output", builder, mask)
+		data, err := ProcessBuilder(store, "./output", builder, masks[builder.alias])
 		if err != nil {
 			log.Fatalf("Failed to process builder %+v with error: %v\n", builder, err)
 		}

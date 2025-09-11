@@ -113,7 +113,7 @@ func getLastIntermediateLayer(store storage.Store, builderLayer *storage.Layer) 
 	return longestChain, nil
 }
 
-func saveDiff(store storage.Store, dest string, layerId string, parentId string, alias string, mask CopyMask) error {
+func saveDiff(store storage.Store, dest string, layerId string, parentId string, mask CopyMask) error {
 	compression := archive.Uncompressed
 	opts := storage.DiffOptions{
 		Compression: &compression,
@@ -135,7 +135,7 @@ func saveDiff(store storage.Store, dest string, layerId string, parentId string,
 			return err
 		}
 
-		if !mask.Includes(alias, header.Name) {
+		if !mask.Includes(header.Name) {
 			continue
 		}
 
@@ -183,7 +183,7 @@ func getIntermediateDiffPath(store storage.Store, builderImage *storage.Image, b
 	}
 	log.Printf("intermediate path: %s for layer %s\n", interPath, interLayer.ID)
 
-	err = saveDiff(store, interPath, interLayer.ID, builderLayer.ID, builder.alias, mask)
+	err = saveDiff(store, interPath, interLayer.ID, builderLayer.ID, mask)
 	if err != nil {
 		return "", err
 	}
@@ -204,7 +204,7 @@ func getBuilderContent(store storage.Store, builderImage *storage.Image, builder
 		return "", err
 	}
 
-	for _, src := range mask.GetSources(builder.alias) {
+	for _, src := range mask.GetSources() {
 		full := path.Join(mountPath, src)
 		fInfo, err := os.Stat(full)
 		if err != nil {
