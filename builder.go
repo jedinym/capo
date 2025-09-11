@@ -8,34 +8,20 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"slices"
+	"strings"
 
 	"go.podman.io/storage"
 	"go.podman.io/storage/pkg/archive"
 )
 
-func findImage(images []storage.Image, pullspec string) (storage.Image, error) {
-	for _, image := range images {
-		if slices.Contains(image.Names, pullspec) {
-			return image, nil
-		}
-	}
 
-	return storage.Image{}, fmt.Errorf("Could not find image %s", pullspec)
-}
-
-func getBuilderLayer(store storage.Store, pullspec string) (*storage.Layer, error) {
-	images, err := store.Images()
+func getBuilderImage(store storage.Store, pullspec string) (*storage.Image, error) {
+	imgId, err := store.Lookup(pullspec)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Could not find builder image: %s", pullspec)
 	}
 
-	i, err := findImage(images, pullspec)
-	if err != nil {
-		return nil, err
-	}
-
-	return store.Layer(i.TopLayer)
+	return store.Image(imgId)
 }
 
 func getIntermediateLayers(store storage.Store, builderLayer *storage.Layer) ([]*storage.Layer, error) {
@@ -49,7 +35,6 @@ func getIntermediateLayers(store storage.Store, builderLayer *storage.Layer) ([]
 	for _, img := range images {
 		// The image for the last intermediate layer never has a name
 		if len(img.Names) != 0 {
-			continue
 		}
 		// This is an image for the builder layer itself
 		if img.TopLayer == builderLayer.ID {
@@ -84,6 +69,7 @@ func getIntermediateLayers(store storage.Store, builderLayer *storage.Layer) ([]
 	return candidates, nil
 }
 
+// TODO: is this really the best way to find the layer?
 func getLastIntermediateLayer(store storage.Store, builderLayer *storage.Layer) (*storage.Layer, error) {
 	candidates, err := getIntermediateLayers(store, builderLayer)
 	if err != nil {
@@ -91,8 +77,7 @@ func getLastIntermediateLayer(store storage.Store, builderLayer *storage.Layer) 
 	}
 
 	if len(candidates) == 0 {
-		// TODO: this might also suggest that there is no layer created in the builder
-		return nil, fmt.Errorf("Could not find last intermediate layer")
+		return nil, nil
 	}
 
 	// Find the candidate with the longest layer chain (furthest from builder)
@@ -180,86 +165,124 @@ func saveDiff(store storage.Store, dest string, layerId string, parentId string,
 	return nil
 }
 
-func saveDiffs(store storage.Store, alias string, interLayerId string, builderLayerId string, mask CopyMask) (string, string, error) {
-	builderPath, err := os.MkdirTemp("", "")
+// It is the caller's responsibility to clean up the returned path.
+func getIntermediateDiffPath(store storage.Store, builderImage *storage.Image, builder Builder, mask CopyMask) (string, error) {
+	builderLayer, err := store.Layer(builderImage.TopLayer)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	log.Printf("builder path: %s for layer %s\n", builderPath, builderLayerId)
+
+	// FIXME: interLayer can be nil (when there's no intermediate layer)
+	interLayer, err := getLastIntermediateLayer(store, builderLayer)
+	if err != nil {
+		return "", err
+	}
 
 	interPath, err := os.MkdirTemp("", "")
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	log.Printf("intermediate path: %s for layer %s\n", interPath, interLayerId)
+	log.Printf("intermediate path: %s for layer %s\n", interPath, interLayer.ID)
 
-	err = saveDiff(store, builderPath, builderLayerId, "", alias, mask)
+	err = saveDiff(store, interPath, interLayer.ID, builderLayer.ID, builder.alias, mask)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 
-	err = saveDiff(store, interPath, interLayerId, builderLayerId, alias, mask)
-	if err != nil {
-		return "", "", err
-	}
-
-	return builderPath, interPath, nil
+	return interPath, nil
 }
 
-func scanDiffs(dest string, bDiffPath string, iDiffPath string) (string, string, error) {
-	bSbomPath := path.Join(dest, "builder.json")
-	iSbomPath := path.Join(dest, "intermediate.json")
+func getExcludedPaths(root string, mask CopyMask, alias string) ([]string, error) {
+	excluded := make([]string, 0)
 
-	c1 := make(chan error)
-	c2 := make(chan error)
+	// Use a queue for breadth-first traversal
+	queue := []string{root}
 
-	go func() {
-		c1 <- SyftScan(bDiffPath, bSbomPath)
-	}()
+	for len(queue) > 0 {
+		currentPath := queue[0]
+		queue = queue[1:]
 
-	go func() {
-		c2 <- SyftScan(iDiffPath, iSbomPath)
-	}()
+		entries, err := os.ReadDir(currentPath)
+		if err != nil {
+			return []string{}, err
+		}
 
-	if err := <-c1; err != nil {
-		return "", "", err
+		for _, entry := range entries {
+			fullPath := filepath.Join(currentPath, entry.Name())
+			noRoot, _ := strings.CutPrefix(fullPath, root+"/")
+
+			// skip if parent is already excluded
+			parentExcluded := false
+			for _, exc := range excluded {
+				if strings.HasPrefix(fullPath, filepath.Join(root, exc)) {
+					parentExcluded = true
+					break
+				}
+			}
+
+			if parentExcluded {
+				continue
+			}
+
+			if !mask.Supersets(alias, noRoot) {
+				// syft excludes must begin with "./"
+				toExclude := "./" + noRoot
+				if entry.IsDir() {
+					toExclude = toExclude + "/**"
+				}
+				excluded = append(excluded, toExclude)
+			} else if entry.IsDir() {
+				// Only add directories to queue if they're not excluded
+				queue = append(queue, fullPath)
+			}
+		}
 	}
 
-	if err := <-c2; err != nil {
-		return "", "", err
-	}
-
-	return bSbomPath, iSbomPath, nil
+	return excluded, nil
 }
 
+// TODO: break up into more functions
+// TODO: create a struct with often used args
 func ProcessBuilder(store storage.Store, output string, builder Builder, mask CopyMask) (BuilderImage, error) {
-	builderLayer, err := getBuilderLayer(store, builder.pullspec)
-	if err != nil {
-		return BuilderImage{}, err
-	}
-
-	interLayer, err := getLastIntermediateLayer(store, builderLayer)
-	if err != nil {
-		return BuilderImage{}, err
-	}
-
-	// TODO: call os.RemoveAll on the diff directories once debugging is complete
-	bDiffPath, iDiffPath, err := saveDiffs(store, builder.alias, interLayer.ID, builderLayer.ID, mask)
-	if err != nil {
-		return BuilderImage{}, nil
-	}
-	//defer os.RemoveAll(bDiffPath)
-	//defer os.RemoveAll(iDiffPath)
-
 	dest := path.Join(output, "builder", builder.alias)
 	if err := os.MkdirAll(dest, 0755); err != nil {
 		return BuilderImage{}, err
 	}
 
-	bSbomPath, iSbomPath, err := scanDiffs(dest, bDiffPath, iDiffPath)
+	builderImage, err := getBuilderImage(store, builder.pullspec)
 	if err != nil {
 		return BuilderImage{}, err
 	}
+
+	iDiffPath, err := getIntermediateDiffPath(store, builderImage, builder, mask)
+	if err != nil {
+		return BuilderImage{}, err
+	}
+	log.Printf("Builder %s intermediate diff path: %s", builder.alias, iDiffPath)
+	//defer os.RemoveAll(iDiffPath)
+
+	iSbomPath := path.Join(dest, "intermediate.json")
+	if err := SyftScan(iDiffPath, iSbomPath, []string{}); err != nil {
+		return BuilderImage{}, err
+	}
+
+	mountPath, err := store.MountImage(builderImage.ID, []string{}, "")
+	if err != nil {
+		return BuilderImage{}, err
+	}
+	defer store.UnmountImage(builderImage.ID, false)
+
+	excluded, err := getExcludedPaths(mountPath, mask, builder.alias)
+	if err != nil {
+		return BuilderImage{}, err
+	}
+
+	bSbomPath := path.Join(dest, "builder.json")
+	log.Printf("Builder %s content path: %s", builder.alias, mountPath + "/usr/bin")
+	if err := SyftScan(mountPath, bSbomPath, excluded); err != nil {
+		return BuilderImage{}, err
+	}
+	//defer os.RemoveAll(bContentPath)
 
 	return BuilderImage{
 		Pullspec:         builder.pullspec,

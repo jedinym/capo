@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"go.podman.io/storage"
+	"go.podman.io/storage/pkg/reexec"
 )
 
 func main() {
@@ -12,29 +13,23 @@ func main() {
 	input := Input{
 		builders: []Builder{
 			{
-				pullspec: "registry.access.redhat.com/ubi9/python-312@sha256:83b01cf47b22e6ce98a0a4802772fb3d4b7e32280e3a1b7ffcd785e01956e1cb",
-				alias:    "first",
+				pullspec: "quay.io/konflux-ci/oras:1bd29cc",
+				alias:    "builder",
 				copies: []Copy{
 					{
-						source: []string{"/dir", "/dir2"},
-						dest:   "/dest/",
-					},
-				},
-			},
-			{
-				pullspec: "registry.access.redhat.com/ubi9/python-312@sha256:83b01cf47b22e6ce98a0a4802772fb3d4b7e32280e3a1b7ffcd785e01956e1cb",
-				alias:    "last",
-				copies: []Copy{
-					{
-						source: []string{"/dest/"},
-						dest:   "/app",
+						source: []string{"/usr/bin/oras"},
+						dest:   "/usr/bin/oras",
 					},
 				},
 			},
 		},
 	}
+	if reexec.Init() {
+		return
+	}
 
 	mask := NewCopyMask(input.builders)
+	log.Printf("Parsed copy mask: %+v\n", mask)
 
 	opts, err := storage.DefaultStoreOptions()
 	if err != nil {

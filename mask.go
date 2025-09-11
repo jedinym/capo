@@ -35,10 +35,25 @@ func NewCopyMask(builders []Builder) CopyMask {
 	return CopyMask{mask: mask}
 }
 
+// path cannot be prefixed with '/', the root char is added when comparing to sources
 func (mask CopyMask) Includes(alias string, path string) bool {
 	sources := mask.mask[alias]
 	for _, src := range sources {
+		// TODO: the log statements should be moved to the callers for more context?
 		if strings.HasPrefix("/" + path, src) {
+			log.Printf("Including %s\n", path)
+			return true
+		}
+	}
+
+	return false
+}
+
+func (mask CopyMask) Supersets(alias string, path string) bool {
+	sources := mask.mask[alias]
+	for _, src := range sources {
+		// TODO: the log statements should be moved to the callers for more context?
+		if strings.HasPrefix(src, "/" + path) {
 			log.Printf("Including %s\n", path)
 			return true
 		}
