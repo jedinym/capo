@@ -24,8 +24,10 @@ func main() {
 			},
 		},
 	}
+
+	// The containers/storage library requires this to run for some operations
 	if reexec.Init() {
-		return
+		log.Fatalln("Failed to init reexec")
 	}
 
 	masks := NewCopyMasks(input.builders)
