@@ -14,9 +14,9 @@ type Builder struct {
 	// Pullspec of the builder image.
 	pullspec string
 	// Alias of the builder stage.
-	alias    string
+	alias string
 	// Slice of copies from this builder image.
-	copies   []Copy
+	copies []Copy
 }
 
 // External represents an external image that is copied FROM in the Containerfile.
@@ -25,7 +25,7 @@ type External struct {
 	// Pullspec of the external image.
 	pullspec string
 	// Slice of copies from this external image.
-	copies   []Copy
+	copies []Copy
 }
 
 // Copy represents a COPY command, excepting copies from context (only external image and builder copies).
