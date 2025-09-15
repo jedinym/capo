@@ -5,6 +5,8 @@ import (
 	"strings"
 )
 
+// TODO: implement wildcards for all CopyMask users
+// https://docs.docker.com/reference/dockerfile/#pattern-matching
 type CopyMask struct {
 	sources []string
 }
