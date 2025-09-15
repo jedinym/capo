@@ -146,6 +146,7 @@ func saveDiff(store storage.Store, dest string, layerId string, parentId string,
 				return err
 			}
 		case tar.TypeReg:
+			// TODO: use WriteFile or Create here
 			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY, os.FileMode(header.Mode))
 			if err != nil {
 				return err
@@ -164,30 +165,32 @@ func saveDiff(store storage.Store, dest string, layerId string, parentId string,
 }
 
 // It is the caller's responsibility to clean up the returned path.
-func getIntermediateDiffPath(store storage.Store, builderImage *storage.Image, builder Builder, mask CopyMask) (string, error) {
+// Returns (false, "", nil) if there's no intermediate layer in the builder stage.
+func getIntermediateDiffPath(store storage.Store, builderImage *storage.Image, mask CopyMask) (bool, string, error) {
 	builderLayer, err := store.Layer(builderImage.TopLayer)
 	if err != nil {
-		return "", err
+		return false, "", err
 	}
 
-	// FIXME: interLayer can be nil (when there's no intermediate layer)
 	interLayer, err := getLastIntermediateLayer(store, builderLayer)
 	if err != nil {
-		return "", err
+		return false, "", err
+	}
+	if interLayer == nil {
+		return false, "", nil
 	}
 
 	interPath, err := os.MkdirTemp("", "")
 	if err != nil {
-		return "", err
+		return true, "", err
 	}
-	log.Printf("intermediate path: %s for layer %s\n", interPath, interLayer.ID)
 
 	err = saveDiff(store, interPath, interLayer.ID, builderLayer.ID, mask)
 	if err != nil {
-		return "", err
+		return true, "", err
 	}
 
-	return interPath, nil
+	return true, interPath, nil
 }
 
 // It is the caller's responsibility to clean up the returned path.
@@ -211,7 +214,7 @@ func getBuilderContent(store storage.Store, builderImage *storage.Image, builder
 		}
 
 		if fInfo.IsDir() {
-			// FIXME: implement magic (later)
+			// FIXME: implement directory copies (at some point)
 		} else if fInfo.Mode().IsRegular() {
 			reader, err := os.Open(full)
 
@@ -248,16 +251,19 @@ func ProcessBuilder(store storage.Store, output string, builder Builder, mask Co
 		return BuilderImage{}, err
 	}
 
-	iDiffPath, err := getIntermediateDiffPath(store, builderImage, builder, mask)
+	iExists, iDiffPath, err := getIntermediateDiffPath(store, builderImage, mask)
 	if err != nil {
 		return BuilderImage{}, err
 	}
-	log.Printf("Builder %s intermediate diff path: %s", builder.alias, iDiffPath)
-	//defer os.RemoveAll(iDiffPath)
 
-	iSbomPath := path.Join(dest, "intermediate.json")
-	if err := SyftScan(iDiffPath, iSbomPath); err != nil {
-		return BuilderImage{}, err
+	iSbomPath := ""
+	if iExists {
+		log.Printf("Builder %s intermediate diff path: %s", builder.alias, iDiffPath)
+		iSbomPath = path.Join(dest, "intermediate.json")
+		if err := SyftScan(iDiffPath, iSbomPath); err != nil {
+			return BuilderImage{}, err
+		}
+		//defer os.RemoveAll(iDiffPath)
 	}
 
 	bContentPath, err := getBuilderContent(store, builderImage, builder, mask)

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 
 	"go.podman.io/storage"
@@ -45,8 +44,9 @@ func main() {
 
 	builderData := make([]BuilderImage, 0)
 
+	output := "./output"
 	for _, builder := range input.builders {
-		data, err := ProcessBuilder(store, "./output", builder, masks[builder.alias])
+		data, err := ProcessBuilder(store, output, builder, masks[builder.alias])
 		if err != nil {
 			log.Fatalf("Failed to process builder %+v with error: %v\n", builder, err)
 		}
@@ -56,6 +56,10 @@ func main() {
 	index := Index{
 		Builder: builderData,
 	}
+	iPath, err := index.Write(output)
+	if err != nil {
+		log.Fatalln("Failed to write index to %s with error: %v\n", iPath, err)
+	}
 
-	fmt.Printf("%+v\n", index)
+	log.Printf("Written index to %s", iPath)
 }
