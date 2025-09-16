@@ -33,7 +33,9 @@ func getIntermediateLayers(store storage.Store, builderLayer *storage.Layer) ([]
 	for _, img := range images {
 		// The image for the last intermediate layer never has a name
 		if len(img.Names) != 0 {
+			continue
 		}
+
 		// This is an image for the builder layer itself
 		if img.TopLayer == builderLayer.ID {
 			continue
@@ -45,7 +47,6 @@ func getIntermediateLayers(store storage.Store, builderLayer *storage.Layer) ([]
 		}
 
 		layerId := img.TopLayer
-
 		for {
 			if layerId == "" {
 				break
@@ -146,6 +147,10 @@ func saveDiff(store storage.Store, dest string, layerId string, parentId string,
 				return err
 			}
 		case tar.TypeReg:
+			// sometimes the archive does not have headers for directories
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				return err
+			}
 			// TODO: use WriteFile or Create here
 			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY, os.FileMode(header.Mode))
 			if err != nil {
@@ -194,7 +199,7 @@ func getIntermediateDiffPath(store storage.Store, builderImage *storage.Image, m
 }
 
 // It is the caller's responsibility to clean up the returned path.
-func getBuilderContent(store storage.Store, builderImage *storage.Image, builder Builder, mask CopyMask) (string, error) {
+func getBuilderContent(store storage.Store, builderImage *storage.Image, mask CopyMask) (string, error) {
 	mountPath, err := store.MountImage(builderImage.ID, []string{}, "")
 	if err != nil {
 		return "", err
@@ -258,7 +263,7 @@ func ProcessBuilder(store storage.Store, output string, builder Builder, mask Co
 
 	iSbomPath := ""
 	if iExists {
-		log.Printf("Builder %s intermediate diff path: %s", builder.alias, iDiffPath)
+		log.Printf("Builder \"%s\" intermediate diff path: %s", builder.alias, iDiffPath)
 		iSbomPath = path.Join(dest, "intermediate.json")
 		if err := SyftScan(iDiffPath, iSbomPath); err != nil {
 			return BuilderImage{}, err
@@ -266,14 +271,14 @@ func ProcessBuilder(store storage.Store, output string, builder Builder, mask Co
 		//defer os.RemoveAll(iDiffPath)
 	}
 
-	bContentPath, err := getBuilderContent(store, builderImage, builder, mask)
+	bContentPath, err := getBuilderContent(store, builderImage, mask)
 	if err != nil {
 		return BuilderImage{}, err
 	}
 	//defer os.RemoveAll(bContentPath)
 
 	bSbomPath := path.Join(dest, "builder.json")
-	log.Printf("Builder %s content path: %s", builder.alias, bContentPath)
+	log.Printf("Builder \"%s\" content path: %s", builder.alias, bContentPath)
 	if err := SyftScan(bContentPath, bSbomPath); err != nil {
 		return BuilderImage{}, err
 	}
