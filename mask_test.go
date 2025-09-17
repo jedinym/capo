@@ -18,10 +18,10 @@ func TestCopyMaskFiltering(t *testing.T) {
 			name: "single builder with single copy",
 			builders: []Builder{
 				{
-					alias:    "stage1",
-					pullspec: "image1",
+					alias:    "builder",
+					pullspec: "builder-image",
 					copies: []Copy{
-						{source: []string{"/app"}, dest: "/usr/app"},
+						{source: []string{"/app"}, dest: "/usr/app", stage: FINAL_STAGE},
 					},
 				},
 			},
@@ -30,28 +30,28 @@ func TestCopyMaskFiltering(t *testing.T) {
 				path     string
 				expected bool
 			}{
-				{"stage1", "app/file.txt", true},
-				{"stage1", "app", true},
-				{"stage1", "app/subdir/file.txt", true},
-				{"stage1", "other/file.txt", false},
-				{"stage1", "ap", false},
+				{"builder", "app/file.txt", true},
+				{"builder", "app", true},
+				{"builder", "app/subdir/file.txt", true},
+				{"builder", "other/file.txt", false},
+				{"builder", "ap", false},
 			},
 		},
 		{
-			name: "multiple builders with dependency chain",
+			name: "transitive copy",
 			builders: []Builder{
 				{
-					alias:    "base",
-					pullspec: "base-image",
+					alias:    "first",
+					pullspec: "builder-image",
 					copies: []Copy{
-						{source: []string{"/src"}, dest: "/build"},
+						{source: []string{"/app"}, dest: "/usr/app", stage: "second"},
 					},
 				},
 				{
-					alias:    "final",
-					pullspec: "final-image",
+					alias:    "second",
+					pullspec: "builder-image",
 					copies: []Copy{
-						{source: []string{"/build"}, dest: "/app"},
+						{source: []string{"/usr/app"}, dest: "/usr/app", stage: FINAL_STAGE},
 					},
 				},
 			},
@@ -60,37 +60,32 @@ func TestCopyMaskFiltering(t *testing.T) {
 				path     string
 				expected bool
 			}{
-				{"final", "build/file.txt", true},
-				{"final", "build", true},
-				{"final", "build/subdir/file.txt", true},
-				{"base", "src/file.txt", true},
-				{"base", "src", true},
-				{"final", "other/file.txt", false},
-				{"base", "other/file.txt", false},
+				{"first", "app/file.txt", true},
+				{"first", "app", true},
+				{"first", "app/subdir/file.txt", true},
+				{"first", "other/file.txt", false},
+				{"first", "ap", false},
+				{"second", "usr/app/file.txt", true},
+				{"second", "usr/app/subdir/file.txt", true},
+				{"second", "ap", false},
 			},
 		},
 		{
-			name: "builders with copies not in dependency tree",
+			name: "transitive and final copy mix",
 			builders: []Builder{
 				{
-					alias:    "unused",
-					pullspec: "unused-image",
+					alias:    "first",
+					pullspec: "builder-image",
 					copies: []Copy{
-						{source: []string{"/unused/path"}, dest: "/nowhere"},
+						{source: []string{"/app"}, dest: "/usr/app", stage: "second"},
+						{source: []string{"/lib"}, dest: "/app/lib", stage: FINAL_STAGE},
 					},
 				},
 				{
-					alias:    "base",
-					pullspec: "base-image",
+					alias:    "second",
+					pullspec: "builder-image",
 					copies: []Copy{
-						{source: []string{"/src"}, dest: "/build"},
-					},
-				},
-				{
-					alias:    "final",
-					pullspec: "final-image",
-					copies: []Copy{
-						{source: []string{"/build"}, dest: "/app"},
+						{source: []string{"/usr/app"}, dest: "/usr/app", stage: FINAL_STAGE},
 					},
 				},
 			},
@@ -99,36 +94,18 @@ func TestCopyMaskFiltering(t *testing.T) {
 				path     string
 				expected bool
 			}{
-				{"final", "build/file.txt", true},
-				{"base", "src/file.txt", true},
-				{"unused", "unused/path/file.txt", false}, // Not in dependency tree from final
-				{"unused", "unused/path", false},
-				{"final", "unused/path/file.txt", false},
+				{"first", "app/file.txt", true},
+				{"first", "lib/lib.h", true},
 			},
 		},
 		{
-			name: "complex multi-stage with multiple sources",
+			name: "root path as source",
 			builders: []Builder{
 				{
-					alias:    "deps",
-					pullspec: "deps-image",
+					alias:    "test",
+					pullspec: "test-image",
 					copies: []Copy{
-						{source: []string{"/deps/lib1", "/deps/lib2"}, dest: "/libraries"},
-					},
-				},
-				{
-					alias:    "build",
-					pullspec: "build-image",
-					copies: []Copy{
-						{source: []string{"/libraries"}, dest: "/compiled"},
-						{source: []string{"/src"}, dest: "/compiled/src"},
-					},
-				},
-				{
-					alias:    "final",
-					pullspec: "final-image",
-					copies: []Copy{
-						{source: []string{"/compiled"}, dest: "/app"},
+						{source: []string{"/"}, dest: "/copy"},
 					},
 				},
 			},
@@ -137,23 +114,18 @@ func TestCopyMaskFiltering(t *testing.T) {
 				path     string
 				expected bool
 			}{
-				{"final", "compiled/app", true},
-				{"final", "compiled", true},
-				{"build", "libraries/lib.so", true},
-				{"build", "src/main.go", true},
-				{"deps", "deps/lib1/header.h", true},
-				{"deps", "deps/lib2/binary", true},
-				{"final", "other/path", false},
-				{"build", "other/path", false},
+				{"test", "anything", true},
 			},
 		},
 		{
-			name: "builder with no copies",
+			name: "path exactly matches source",
 			builders: []Builder{
 				{
-					alias:    "empty",
-					pullspec: "empty-image",
-					copies:   []Copy{},
+					alias:    "test",
+					pullspec: "test-image",
+					copies: []Copy{
+						{source: []string{"/exact/path"}, dest: "/dest"},
+					},
 				},
 			},
 			testCases: []struct {
@@ -161,7 +133,7 @@ func TestCopyMaskFiltering(t *testing.T) {
 				path     string
 				expected bool
 			}{
-				{"empty", "any/path", false},
+				{"test", "exact/path", true},
 			},
 		},
 	}
@@ -180,62 +152,6 @@ func TestCopyMaskFiltering(t *testing.T) {
 				if result != tc.expected {
 					t.Errorf("Includes(%q) for alias %q = %v, want %v", tc.path, tc.alias, result, tc.expected)
 				}
-			}
-		})
-	}
-}
-
-func TestCopyMaskWithEdgeCases(t *testing.T) {
-	tests := []struct {
-		name     string
-		builders []Builder
-		alias    string
-		path     string
-		expected bool
-	}{
-		{
-			name: "root path as source",
-			builders: []Builder{
-				{
-					alias:    "test",
-					pullspec: "test-image",
-					copies: []Copy{
-						{source: []string{"/"}, dest: "/copy"},
-					},
-				},
-			},
-			alias:    "test",
-			path:     "anything",
-			expected: true,
-		},
-		{
-			name: "path exactly matches source",
-			builders: []Builder{
-				{
-					alias:    "test",
-					pullspec: "test-image",
-					copies: []Copy{
-						{source: []string{"/exact/path"}, dest: "/dest"},
-					},
-				},
-			},
-			alias:    "test",
-			path:     "exact/path",
-			expected: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			masks := NewCopyMasks(tt.builders)
-			mask, exists := masks[tt.alias]
-			if !exists {
-				t.Errorf("No mask found for alias %q", tt.alias)
-				return
-			}
-			result := mask.Includes(tt.path)
-			if result != tt.expected {
-				t.Errorf("Includes(%q) for alias %q = %v, want %v", tt.path, tt.alias, result, tt.expected)
 			}
 		})
 	}

@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// TODO: implement wildcards for all CopyMask users
+// TODO: implement pattern matching for all CopyMask users
 // https://docs.docker.com/reference/dockerfile/#pattern-matching
 type CopyMask struct {
 	sources []string
@@ -15,18 +15,21 @@ func NewCopyMasks(builders []Builder) map[string]CopyMask {
 	if len(builders) == 0 {
 		return make(map[string]CopyMask)
 	}
-	topBuilder := builders[len(builders)-1]
 
 	graphs := make([]copyNode, 0)
-	for _, copy := range topBuilder.copies {
-		root := copyNode{
-			builder:  topBuilder.alias,
-			source:   copy.source,
-			dest:     copy.dest,
-			children: make([]copyNode, 0),
+	for i, builder := range builders {
+		for _, cp := range builder.copies {
+			if cp.IsFromFinalStage() {
+				root := copyNode{
+					builder:  builder.alias,
+					source:   cp.source,
+					dest:     cp.dest,
+					children: make([]copyNode, 0),
+				}
+				buildDependencyTree(&root, builders, i)
+				graphs = append(graphs, root)
+			}
 		}
-		buildDependencyTree(&root, builders, len(builders)-1)
-		graphs = append(graphs, root)
 	}
 
 	mask := make(map[string][]string)

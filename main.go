@@ -12,12 +12,13 @@ func main() {
 	input := Input{
 		builders: []Builder{
 			{
-				pullspec: "quay.io/konflux-ci/oras:1bd29cc",
+				pullspec: "quay.io/konflux-ci/oras:41b74d6",
 				alias:    "builder",
 				copies: []Copy{
 					{
 						source: []string{"/usr/bin/oras"},
 						dest:   "/usr/bin/oras",
+						stage:  FINAL_STAGE,
 					},
 				},
 			},
@@ -58,7 +59,7 @@ func main() {
 	}
 	iPath, err := index.Write(output)
 	if err != nil {
-		log.Fatalln("Failed to write index to %s with error: %v\n", iPath, err)
+		log.Fatalf("Failed to write index to %s with error: %v\n", iPath, err)
 	}
 
 	log.Printf("Written index to %s", iPath)
